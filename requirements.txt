@@ -1,0 +1,5 @@
+streamlit>=1.36
+ultralytics>=8.2
+opencv-python-headless>=4.9
+yt-dlp>=2024.8
+numpy>=1.26
