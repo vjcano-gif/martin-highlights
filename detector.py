@@ -72,20 +72,23 @@ def matches_color(frame: np.ndarray, bbox, ranges, torso_ratio: float = 0.5,
     return _fraction_color(crop, ranges) >= threshold
 
 
-def analyze_video(video_path, model_name: str = "yolov8n.pt", conf: float = 0.3,
+def analyze_video(video_path, model_name: str = "yolov8m.pt", conf: float = 0.25,
                   team_color: str | None = "amarillo", color_threshold: float = 0.15,
-                  progress=None):
+                  imgsz: int = 1280, progress=None):
     """
     Corre YOLO + seguimiento sobre el video.
 
     Parámetros
     ----------
-    model_name    : "yolov8n.pt" rápido; "yolov8s/m.pt" más precisos y lentos.
+    model_name    : "yolov8n.pt" rápido; "yolov8m/x.pt" más precisos y lentos.
+    conf          : confianza mínima. Bájalo para captar jugadores lejanos.
     team_color    : nombre de color en COLOR_RANGES para marcar el equipo de
                     Martin. Si es None, NO filtra por color y marca a todos
                     (útil si Martin usa un uniforme distinto, ej. arquero).
     color_threshold : cuánta camiseta debe ser de ese color (0-1). Bájalo si no
                     detecta el uniforme; súbelo si marca a rivales por error.
+    imgsz         : resolución a la que YOLO analiza. MÁS ALTO = detecta mejor a
+                    los niños pequeños/lejanos (960, 1280, 1536). También más lento.
     progress      : función opcional progress(frame_idx, total) para la barra.
 
     Devuelve
@@ -108,6 +111,7 @@ def analyze_video(video_path, model_name: str = "yolov8n.pt", conf: float = 0.3,
         source=str(video_path),
         classes=[PERSON_CLASS, BALL_CLASS],
         conf=conf,
+        imgsz=imgsz,
         persist=True,
         tracker="bytetrack.yaml",
         stream=True,
