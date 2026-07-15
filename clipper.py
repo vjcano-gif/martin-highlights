@@ -20,7 +20,11 @@ def download_youtube(url: str, out_path: str = "match.mp4",
               YouTube bloquea al servidor con "confirma que no eres un robot"
               (típico desde IPs de la nube como Colab).
     """
-    fmt = f"bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]"
+    # Preferimos códec H.264 (avc1): es el que OpenCV/YOLO SÍ pueden decodificar.
+    # Los formatos VP9/AV1 se ven en el navegador pero YOLO no los lee → 0 detecciones.
+    fmt = (f"bestvideo[vcodec^=avc1][height<={max_height}]+bestaudio/"
+           f"best[vcodec^=avc1][height<={max_height}]/"
+           f"best[height<={max_height}]")
     cmd = ["yt-dlp", "-f", fmt, "--merge-output-format", "mp4", "-o", out_path]
     if cookies:
         cmd += ["--cookies", cookies]
