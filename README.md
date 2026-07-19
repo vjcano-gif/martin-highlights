@@ -39,6 +39,8 @@ Link de YouTube ─▶ Google Colab (GPU) ─▶ video de highlights ⚽
    que el túnel es público: no compartas su dirección.
 5. En la app: pega el link → analiza → marca a Martin → descarga el video.
 
+La última celda termina en cuanto muestra la URL; la app y el túnel siguen activos en segundo plano. Si Colab se queda en **Conectando** antes de ejecutar, selecciona *Entorno de ejecución → Desconectar y eliminar entorno de ejecución*, vuelve a conectar y repite las celdas.
+
 > **Consejo:** la primera vez pon *"Analizar solo los primeros N minutos = 2"*
 > para probar rápido. Cuando funcione, ponlo en `0` para el partido completo.
 
