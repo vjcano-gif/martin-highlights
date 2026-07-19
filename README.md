@@ -1,5 +1,16 @@
 # ⚽ Highlights de Martin
 
+## Abrir la aplicación (sin instalar nada)
+
+[![Abrir en Google Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/vjcano-gif/martin-highlights/blob/main/colab_martin.ipynb)
+
+1. Pulsa el botón **Abrir en Google Colab**.
+2. En Colab, pulsa **Entorno de ejecución → Ejecutar todas**.
+3. Si Colab pregunta si confías en el notebook, pulsa **Ejecutar de todos modos**.
+4. Al final, pulsa el enlace grande **Abrir Highlights de Martin**. La dirección correcta termina en `trycloudflare.com`; cierra cualquier pestaña `loca.lt`.
+
+> La primera ejecución puede tardar varios minutos mientras Colab instala las dependencias.
+
 Genera automáticamente un video con las mejores jugadas de **Martin** (nº 11,
 equipo amarillo) a partir del link de YouTube de un partido — sin descargar el
 video a mano y sin instalar nada en tu PC.
