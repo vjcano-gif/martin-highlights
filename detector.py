@@ -10,6 +10,7 @@ dónde está cada jugador (con un ID que lo sigue) y dónde está el balón.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import cv2
 import numpy as np
@@ -45,6 +46,8 @@ class Detection:
     bbox: tuple[float, float, float, float]   # x1, y1, x2, y2
     conf: float
     is_target: bool = False         # True si la camiseta coincide con el color buscado
+    frame_width: int = 0            # dimensiones reales del cuadro original
+    frame_height: int = 0
 
 
 def _fraction_color(crop: np.ndarray, ranges) -> float:
@@ -74,7 +77,7 @@ def matches_color(frame: np.ndarray, bbox, ranges, torso_ratio: float = 0.5,
 
 def analyze_video(video_path, model_name: str = "yolov8m.pt", conf: float = 0.25,
                   team_color: str | None = "amarillo", color_threshold: float = 0.15,
-                  imgsz: int = 1280, progress=None):
+                  imgsz: int = 1280, vid_stride: int = 2, progress=None):
     """
     Corre YOLO + seguimiento sobre el video.
 
@@ -89,18 +92,29 @@ def analyze_video(video_path, model_name: str = "yolov8m.pt", conf: float = 0.25
                     detecta el uniforme; súbelo si marca a rivales por error.
     imgsz         : resolución a la que YOLO analiza. MÁS ALTO = detecta mejor a
                     los niños pequeños/lejanos (960, 1280, 1536). También más lento.
+    vid_stride    : analiza uno de cada N cuadros conservando índices y tiempos
+                    del video original.
     progress      : función opcional progress(frame_idx, total) para la barra.
 
     Devuelve
     --------
     (detections, fps, total_frames)
     """
-    model = YOLO(model_name)
-
     cap = cv2.VideoCapture(str(video_path))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    if not cap.isOpened():
+        cap.release()
+        raise ValueError(f"No se pudo abrir el video: {video_path}")
+    fps = float(cap.get(cv2.CAP_PROP_FPS))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     cap.release()
+    if not np.isfinite(fps) or fps <= 0:
+        raise ValueError("El video no tiene un FPS válido.")
+    if total <= 0:
+        raise ValueError("El video no contiene un número válido de fotogramas.")
+    if not isinstance(vid_stride, int) or vid_stride < 1:
+        raise ValueError("vid_stride debe ser un entero mayor o igual que 1.")
+
+    model = YOLO(model_name)
 
     ranges = COLOR_RANGES.get(team_color) if team_color else None
 
@@ -116,11 +130,15 @@ def analyze_video(video_path, model_name: str = "yolov8m.pt", conf: float = 0.25
         tracker="bytetrack.yaml",
         stream=True,
         verbose=False,
+        vid_stride=vid_stride,
     )
 
-    for frame_idx, r in enumerate(results):
+    processed = 0
+    for sampled_idx, r in enumerate(results):
+        frame_idx = sampled_idx * vid_stride
         frame = r.orig_img
         time_s = frame_idx / fps
+        height, width = frame.shape[:2]
 
         if r.boxes is not None:
             for b in r.boxes:
@@ -137,11 +155,23 @@ def analyze_video(video_path, model_name: str = "yolov8m.pt", conf: float = 0.25
                     )
 
                 detections.append(
-                    Detection(frame_idx, time_s, tid, cls, xyxy, conf_v, is_target)
+                    Detection(frame_idx, time_s, tid, cls, xyxy, conf_v,
+                              is_target, width, height)
                 )
 
+        processed += 1
         if progress:
-            progress(frame_idx, total)
+            progress(min(frame_idx + vid_stride, total), total)
+
+    if processed == 0:
+        raise ValueError("El decodificador no pudo leer ningún fotograma del video.")
+    expected = math.ceil(total / vid_stride)
+    if processed != expected:
+        raise ValueError(
+            f"Número de fotogramas inconsistente: se esperaban {expected} "
+            f"muestras y se procesaron {processed}.")
+    if progress:
+        progress(total, total)
 
     return detections, fps, total
 

@@ -27,7 +27,7 @@ def _dist_point_to_bbox(px, py, bbox) -> float:
 
 
 def possession_times(detections: list[Detection], martin_track_ids,
-                     dist_ratio: float = 0.06) -> list[float]:
+                     dist_ratio: float = 0.06, interpolate_frames: int = 4) -> list[float]:
     """
     Devuelve los tiempos (en segundos) en los que el balón está cerca de Martin.
 
@@ -40,6 +40,22 @@ def possession_times(detections: list[Detection], martin_track_ids,
     for d in detections:
         by_frame.setdefault(d.frame_idx, []).append(d)
 
+    # Interpola únicamente huecos breves entre dos observaciones reales del balón.
+    balls = sorted((d for d in detections if d.cls == BALL_CLASS),
+                   key=lambda d: d.frame_idx)
+    for left, right in zip(balls, balls[1:]):
+        gap = right.frame_idx - left.frame_idx
+        if 1 < gap <= interpolate_frames + 1:
+            for frame in range(left.frame_idx + 1, right.frame_idx):
+                alpha = (frame - left.frame_idx) / gap
+                bbox = tuple(a + (b - a) * alpha
+                             for a, b in zip(left.bbox, right.bbox))
+                by_frame.setdefault(frame, []).append(Detection(
+                    frame, left.time_s + (right.time_s-left.time_s)*alpha,
+                    None, BALL_CLASS, bbox, min(left.conf, right.conf), False,
+                    left.frame_width or right.frame_width,
+                    left.frame_height or right.frame_height))
+
     times: list[float] = []
     for dets in by_frame.values():
         balls = [d for d in dets if d.cls == BALL_CLASS]
@@ -48,7 +64,9 @@ def possession_times(detections: list[Detection], martin_track_ids,
         if not balls or not martins:
             continue
 
-        frame_w = max(d.bbox[2] for d in dets)   # ancho aproximado del frame
+        frame_w = next((d.frame_width for d in dets if d.frame_width > 0), 0)
+        if frame_w <= 0:
+            raise ValueError("Las detecciones no incluyen el ancho real del cuadro.")
         thresh = frame_w * dist_ratio
 
         for ball in balls:
@@ -61,7 +79,7 @@ def possession_times(detections: list[Detection], martin_track_ids,
 
 
 def merge_into_clips(times: list[float], gap: float = 2.0, pad: float = 1.5,
-                     min_len: float = 1.0) -> list[tuple[float, float]]:
+                     min_len: float = 1.0, min_detections: int = 2) -> list[tuple[float, float]]:
     """
     Agrupa instantes cercanos en clips [inicio, fin].
 
@@ -69,21 +87,28 @@ def merge_into_clips(times: list[float], gap: float = 2.0, pad: float = 1.5,
     pad     : segundos extra de contexto antes y después de cada jugada.
     min_len : descarta clips más cortos que esto (probablemente ruido).
     """
+    # Una misma detección no puede contar dos veces por entradas duplicadas.
+    times = sorted(set(times))
     if not times:
         return []
 
-    clips: list[tuple[float, float]] = []
+    clips: list[tuple[float, float, int]] = []
     start = prev = times[0]
+    count = 1
     for t in times[1:]:
         if t - prev <= gap:
             prev = t
+            count += 1
         else:
-            clips.append((start, prev))
+            clips.append((start, prev, count))
             start = prev = t
-    clips.append((start, prev))
+            count = 1
+    clips.append((start, prev, count))
 
     out: list[tuple[float, float]] = []
-    for s, e in clips:
+    for s, e, count in clips:
+        if count < min_detections:
+            continue
         s2 = max(s - pad, 0.0)
         e2 = e + pad
         if e2 - s2 >= min_len:

@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import tempfile
 import time
+from urllib.parse import parse_qs, urlparse
 
 import cv2
 import streamlit as st
@@ -58,6 +59,22 @@ def _parse_ranges(texto: str) -> list[tuple[float, float]]:
             fuera.append((sa, sb))
     return fuera
 
+
+def _validate_youtube_url(url: str) -> str:
+    """Acepta videos individuales de YouTube, nunca playlists."""
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or "").lower().removeprefix("www.")
+    if parsed.scheme not in {"http", "https"} or host not in {
+            "youtube.com", "m.youtube.com", "youtu.be"}:
+        raise ValueError("Introduce una URL válida de YouTube.")
+    query = parse_qs(parsed.query)
+    if "list" in query or parsed.path.startswith("/playlist"):
+        raise ValueError("No se admiten listas de reproducción; usa un solo video.")
+    video_id = parsed.path.strip("/") if host == "youtu.be" else query.get("v", [""])[0]
+    if not video_id or "/" in video_id:
+        raise ValueError("La URL no identifica un video individual de YouTube.")
+    return url.strip()
+
 st.set_page_config(page_title="Highlights de Martin", page_icon="⚽")
 st.title("⚽ Highlights de Martin")
 st.caption("Arma un video con las mejores jugadas de Martin (nº 11, equipo amarillo).")
@@ -68,6 +85,8 @@ st.warning(
 )
 
 ss = st.session_state
+if "workdir" not in ss:
+    ss.workdir = tempfile.mkdtemp(prefix="martin-highlights-")
 
 # --- Paso 1: entrada --------------------------------------------------------
 url = st.text_input("🔗 Link del partido en YouTube")
@@ -99,7 +118,10 @@ with st.expander("Opciones avanzadas"):
         "cookies.txt (opcional: si YouTube bloquea la descarga)", type=["txt"]
     )
     max_h = st.select_slider("Resolución de descarga",
-                             options=[360, 480, 720, 1080], value=720)
+                             options=[360, 480, 720, 1080], value=1080)
+    vid_stride = st.number_input("Salto de fotogramas", min_value=1, max_value=10,
+                                 value=2, step=1,
+                                 help="2 analiza uno de cada dos cuadros sin alterar los tiempos.")
     model_name = st.selectbox(
         "Modelo YOLO",
         ["yolov8m.pt", "yolov8x.pt", "yolov8s.pt", "yolov8n.pt"],
@@ -117,19 +139,45 @@ with st.expander("Opciones avanzadas"):
 
 if st.button("① Descargar y analizar", disabled=not url, type="primary"):
     cookies_path = None
-    if cookies_file:
-        cookies_path = os.path.join(tempfile.gettempdir(), "cookies.txt")
-        with open(cookies_path, "wb") as f:
-            f.write(cookies_file.read())
+    try:
+        safe_url = _validate_youtube_url(url)
+        if modo == "Elegir minutos" and (t_fin is None or t_fin <= (t_ini or 0)):
+            raise ValueError("El minuto final debe ser mayor que el inicial.")
+        if cookies_file:
+            fd, cookies_path = tempfile.mkstemp(prefix="cookies-", suffix=".txt",
+                                                dir=ss.workdir)
+            with os.fdopen(fd, "wb") as f:
+                f.write(cookies_file.read())
 
-    with st.spinner("Descargando el video de YouTube..."):
-        video_path = download_youtube(url, cookies=cookies_path, max_height=max_h)
+        with st.spinner("Descargando el video de YouTube..."):
+            video_path = download_youtube(
+                safe_url, out_path=os.path.join(ss.workdir, "match.mp4"),
+                cookies=cookies_path, max_height=max_h)
+    except Exception as exc:
+        st.error(f"No se pudo preparar el video: {exc}")
+        st.stop()
+    finally:
+        if cookies_path and os.path.exists(cookies_path):
+            os.remove(cookies_path)
 
     # Recortar al tramo elegido (salta la previa, etc.)
     ss.offset_s = 0.0
     if modo == "Elegir minutos" and t_fin and t_fin > (t_ini or 0):
-        with st.spinner(f"Recortando del minuto {t_ini} al {t_fin}..."):
-            video_path = trim_video(video_path, t_ini * 60, t_fin * 60)
+        cap = cv2.VideoCapture(video_path)
+        source_fps = float(cap.get(cv2.CAP_PROP_FPS))
+        source_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        duration = source_frames / source_fps if source_fps > 0 else 0
+        if duration <= 0 or t_ini * 60 >= duration or t_fin * 60 > duration:
+            st.error(f"El rango debe estar dentro del video ({_fmt_time(duration)}).")
+            st.stop()
+        try:
+            with st.spinner(f"Recortando del minuto {t_ini} al {t_fin}..."):
+                video_path = trim_video(video_path, t_ini * 60, t_fin * 60,
+                                        os.path.join(ss.workdir, "segment.mp4"))
+        except Exception as exc:
+            st.error(f"No se pudo recortar el video: {exc}")
+            st.stop()
         ss.offset_s = (t_ini or 0) * 60   # para mostrar tiempos reales del video
     ss.video_path = video_path
     ss.clips = None   # se recalculan al buscar jugadas
@@ -160,15 +208,21 @@ if st.button("① Descargar y analizar", disabled=not url, type="primary"):
             txt = f"Frame {i}/{total} · calculando tiempo restante..."
         prog.progress(frac, txt)
 
-    dets, fps, total = analyze_video(
-        video_path,
-        model_name=model_name,
-        conf=conf,
-        team_color=team_color,
-        color_threshold=color_th,
-        imgsz=imgsz,
-        progress=_cb,
-    )
+    try:
+        dets, fps, total = analyze_video(
+            video_path,
+            model_name=model_name,
+            conf=conf,
+            team_color=team_color,
+            color_threshold=color_th,
+            imgsz=imgsz,
+            vid_stride=int(vid_stride),
+            progress=_cb,
+        )
+    except Exception as exc:
+        prog.empty()
+        st.error(f"No se pudo analizar el video: {exc}")
+        st.stop()
     ss.detections = dets
     ss.fps = fps
 
@@ -231,12 +285,15 @@ if ss.get("target_ids"):
     st.markdown("**Formato para redes**")
     fc1, fc2, fc3 = st.columns(3)
     aspect_label = fc1.selectbox("Orientación", list(ASPECTS.keys()))
-    quality = fc2.selectbox("Calidad", [1080, 720, 480], index=0,
+    quality = fc2.selectbox("Calidad", [1080, 720, 480], index=1,
                             format_func=lambda q: f"{q}p")
     fit_label = fc3.selectbox("Ajuste", ["Rellenar (recorta bordes)",
                                          "Encajar (barras negras)"])
     fit = "crop" if fit_label.startswith("Rellenar") else "pad"
     size = target_size(ASPECTS[aspect_label], quality)
+    if size[1] > max_h and size[0] < size[1]:
+        st.warning("La salida vertical requiere reescalado: su altura supera la "
+                   "resolución descargada y puede perder nitidez.")
     st.caption(f"Salida: {size[0]}×{size[1]} px · MP4 (H.264) — compatible con "
                "Instagram, WhatsApp, TikTok y YouTube.")
 
@@ -292,9 +349,13 @@ if ss.get("target_ids"):
                 centers = martin_centers(ss.detections, ss.martin_ids)
                 out = build_following_highlights(
                     ss.video_path, incluidas, centers, ss.fps, size,
+                    workdir=os.path.join(ss.workdir, "clips_follow"),
+                    out_path=os.path.join(ss.workdir, "highlights_martin.mp4"),
                     progress=_cut_cb)
             else:
                 out = build_highlights(ss.video_path, incluidas, size=size,
+                                       workdir=os.path.join(ss.workdir, "clips"),
+                                       out_path=os.path.join(ss.workdir, "highlights_martin.mp4"),
                                        fit=fit, progress=_cut_cb)
             st.success(f"¡Listo! {len(incluidas)} jugadas en {size[0]}×{size[1]}. 🎬")
             st.video(out)          # se reproduce aquí mismo para que lo valides

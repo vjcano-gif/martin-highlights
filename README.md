@@ -32,12 +32,12 @@ Link de YouTube ─▶ Google Colab (GPU) ─▶ video de highlights ⚽
 
 ## Uso (recomendado: Google Colab)
 
-1. Sube este repo a **GitHub**.
-2. Abre `colab_martin.ipynb` en **Google Colab**.
+1. Abre `colab_martin.ipynb` de `vjcano-gif/martin-highlights` en **Google Colab**.
+2. Ejecuta las celdas (se puede repetir la ejecución sin volver a clonar).
 3. Activa la **GPU**: *Entorno de ejecución → Cambiar tipo de entorno → GPU*.
-4. Cambia `TU_USUARIO` por tu usuario de GitHub y ejecuta las celdas.
-5. Abre el enlace `loca.lt` que aparece, usa la IP como contraseña.
-6. En la app: pega el link → analiza → marca a Martin → descarga el video.
+4. Abre el enlace `loca.lt` que aparece, usa la IP como contraseña. Recuerda
+   que el túnel es público: no compartas su dirección.
+5. En la app: pega el link → analiza → marca a Martin → descarga el video.
 
 > **Consejo:** la primera vez pon *"Analizar solo los primeros N minutos = 2"*
 > para probar rápido. Cuando funcione, ponlo en `0` para el partido completo.
@@ -59,3 +59,29 @@ Link de YouTube ─▶ Google Colab (GPU) ─▶ video de highlights ⚽
 - Re-identificación por apariencia para no perder a Martin (deep re-ID).
 - Detección de eventos (disparos a puerta, regates) para priorizar jugadas.
 - Música y transiciones automáticas en el resumen.
+
+## Precisión, estabilidad y privacidad
+
+- Cada detección conserva las dimensiones reales del cuadro; la cercanía al balón
+  se calcula con ese ancho y se interpolan pérdidas breves. Los eventos aislados
+  se descartan automáticamente.
+- El análisis usa `vid_stride=2` de forma predeterminada para acelerar YOLO sin
+  modificar los tiempos originales. La interfaz permite ajustarlo.
+- La descarga predeterminada es 1080p y la salida 720p. La app avisa cuando un
+  formato vertical exige reescalado.
+- Solo se aceptan URLs de videos individuales de YouTube. Cada sesión usa un
+  directorio temporal independiente y sus cookies temporales se borran al acabar
+  la descarga.
+
+## Desarrollo y pruebas
+
+Requiere Python 3.10 o posterior y `ffmpeg` en el `PATH`:
+
+```bash
+pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python -m compileall -q .
+python -m json.tool colab_martin.ipynb >/dev/null
+```
+
+GitHub Actions ejecuta estas comprobaciones en cada push y pull request.
