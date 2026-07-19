@@ -11,8 +11,27 @@ import subprocess
 import tempfile
 
 
+def _temporary_output(out_path: str) -> str:
+    """Reserva un nombre MP4 seguro junto al destino para un reemplazo atómico."""
+    directory = os.path.dirname(os.path.abspath(out_path))
+    os.makedirs(directory, exist_ok=True)
+    fd, path = tempfile.mkstemp(prefix=".martin-", suffix=".mp4", dir=directory)
+    os.close(fd)
+    os.unlink(path)  # ffmpeg/yt-dlp deben crear el archivo, no reutilizarlo.
+    return path
+
+
+def _run(cmd: list[str]) -> None:
+    """Ejecuta una herramienta multimedia conservando un error útil y breve."""
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip().splitlines()
+        raise RuntimeError(detail[-1] if detail else "Falló el procesamiento multimedia") from exc
+
+
 def download_youtube(url: str, out_path: str = "match.mp4",
-                     cookies: str | None = None, max_height: int = 720) -> str:
+                     cookies: str | None = None, max_height: int = 1080) -> str:
     """
     Descarga el video con yt-dlp.
 
@@ -25,11 +44,20 @@ def download_youtube(url: str, out_path: str = "match.mp4",
     fmt = (f"bestvideo[vcodec^=avc1][height<={max_height}]+bestaudio/"
            f"best[vcodec^=avc1][height<={max_height}]/"
            f"best[height<={max_height}]")
-    cmd = ["yt-dlp", "-f", fmt, "--merge-output-format", "mp4", "-o", out_path]
+    tmp = _temporary_output(out_path)
+    cmd = ["yt-dlp", "--no-playlist", "-f", fmt, "--merge-output-format", "mp4",
+           "-o", tmp]
     if cookies:
         cmd += ["--cookies", cookies]
     cmd.append(url)
-    subprocess.run(cmd, check=True)
+    try:
+        _run(cmd)
+        if not os.path.isfile(tmp) or os.path.getsize(tmp) == 0:
+            raise RuntimeError("yt-dlp no produjo un archivo de video válido.")
+        os.replace(tmp, out_path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
     return out_path
 
 
@@ -39,6 +67,8 @@ def trim_video(src: str, start: float, end: float,
     Recorta el tramo [start, end] (en segundos) para analizar solo esa parte
     (ej. saltar la previa). Copia sin recodificar => rapidísimo.
     """
+    if start < 0 or end <= start:
+        raise ValueError("El rango de recorte debe tener inicio >= 0 y fin > inicio.")
     dur = end - start
     cmd = ["ffmpeg", "-y", "-ss", f"{start:.2f}", "-i", src,
            "-t", f"{dur:.2f}", "-c", "copy", out_path]
@@ -83,13 +113,23 @@ def cut_clip(src: str, start: float, end: float, out_path: str,
     size : (ancho, alto) de salida. Si es None, mantiene el original.
     fit  : 'crop' (llena, recorta bordes) o 'pad' (encaja, barras negras).
     """
+    if start < 0 or end <= start:
+        raise ValueError("El clip debe tener inicio >= 0 y fin > inicio.")
     dur = end - start
+    tmp = _temporary_output(out_path)
     cmd = ["ffmpeg", "-y", "-ss", f"{start:.2f}", "-i", src, "-t", f"{dur:.2f}"]
     if size:
         cmd += ["-vf", _format_filter(size, fit)]
     cmd += ["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
-            "-avoid_negative_ts", "make_zero", out_path]
-    subprocess.run(cmd, check=True, capture_output=True)
+            "-avoid_negative_ts", "make_zero", tmp]
+    try:
+        _run(cmd)
+        if not os.path.isfile(tmp) or os.path.getsize(tmp) == 0:
+            raise RuntimeError("ffmpeg no produjo un clip válido.")
+        os.replace(tmp, out_path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
     return out_path
 
 
@@ -124,10 +164,19 @@ def concat_clips(clip_paths: list[str],
             f.write(f"file '{os.path.abspath(p)}'\n")
         list_file = f.name
 
+    tmp = _temporary_output(out_path)
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-           "-i", list_file, "-c", "copy", out_path]
-    subprocess.run(cmd, check=True, capture_output=True)
-    os.unlink(list_file)
+           "-i", list_file, "-c", "copy", tmp]
+    try:
+        _run(cmd)
+        if not os.path.isfile(tmp) or os.path.getsize(tmp) == 0:
+            raise RuntimeError("ffmpeg no produjo el video final.")
+        os.replace(tmp, out_path)
+    finally:
+        if os.path.exists(list_file):
+            os.unlink(list_file)
+        if os.path.exists(tmp):
+            os.unlink(tmp)
     return out_path
 
 
