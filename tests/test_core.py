@@ -103,6 +103,20 @@ class ClipperTests(unittest.TestCase):
             cut_clip('source.mp4', 2, 1, 'output.mp4')
 
 
+class NotebookTests(unittest.TestCase):
+    def test_colab_uses_cloudflare_tunnel(self):
+        import json
+        notebook = json.loads(
+            (pathlib.Path(__file__).parents[1] / "colab_martin.ipynb").read_text(encoding="utf8")
+        )
+        source = "\n".join(
+            "".join(cell.get("source", [])) for cell in notebook["cells"]
+        )
+        self.assertIn("trycloudflare.com", source)
+        self.assertIn("/_stcore/health", source)
+        self.assertNotIn("npx localtunnel", source)
+
+
 class SyntaxTests(unittest.TestCase):
     def test_python_sources_parse(self):
         root = pathlib.Path(__file__).parents[1]

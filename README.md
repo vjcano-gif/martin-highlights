@@ -35,11 +35,11 @@ Link de YouTube ─▶ Google Colab (GPU) ─▶ video de highlights ⚽
 1. Abre `colab_martin.ipynb` de `vjcano-gif/martin-highlights` en **Google Colab**.
 2. Ejecuta las celdas (se puede repetir la ejecución sin volver a clonar).
 3. Activa la **GPU**: *Entorno de ejecución → Cambiar tipo de entorno → GPU*.
-4. Abre el enlace `loca.lt` que aparece, usa la IP como contraseña. Recuerda
-   que el túnel es público: no compartas su dirección.
+4. Abre el enlace `trycloudflare.com` que aparece en una pestaña nueva. El túnel
+   es público: no compartas su dirección.
 5. En la app: pega el link → analiza → marca a Martin → descarga el video.
 
-La última celda termina en cuanto muestra la URL; la app y el túnel siguen activos en segundo plano. Si Colab se queda en **Conectando** antes de ejecutar, selecciona *Entorno de ejecución → Desconectar y eliminar entorno de ejecución*, vuelve a conectar y repite las celdas.
+La última celda comprueba que Streamlit responde y termina en cuanto muestra la URL; la app y el túnel siguen activos en segundo plano. No reutilices enlaces antiguos de `loca.lt`: abre únicamente la nueva URL `trycloudflare.com`. Si Colab se queda en **Conectando** antes de ejecutar, selecciona *Entorno de ejecución → Desconectar y eliminar entorno de ejecución*, vuelve a conectar y repite las celdas.
 
 > **Consejo:** la primera vez pon *"Analizar solo los primeros N minutos = 2"*
 > para probar rápido. Cuando funcione, ponlo en `0` para el partido completo.
